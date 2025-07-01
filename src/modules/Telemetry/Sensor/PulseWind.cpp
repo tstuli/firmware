@@ -8,30 +8,47 @@
 #include <string>
 
 PulseWindSensor::PulseWindSensor() : TelemetrySensor(meshtastic_TelemetrySensorType_SENSOR_UNSET, "PULSEWIND") {}
+volatile unsigned long pulseCount = 0;
+
+void IRAM_ATTR windSpeedInt() {
+    pulseCount++;
+}
 
 void PulseWindSensor::setup()
 {
     // Set up
+
 }
 
 int32_t PulseWindSensor::runOnce()
 {
     LOG_INFO("Init sensor: %s", sensorName);
 
+    LOG_INFO("Setting up PulseWind sensor on GPIO %d", GPIO_SEL_48);
+    pinMode(48, INPUT_PULLUP); // Set GPIO 48 as input with pull-up resistor
+    attachInterrupt(digitalPinToInterrupt(48), windSpeedInt, FALLING);
+
     status = true;
-    if (!hasSensor()) {
-        return DEFAULT_SENSOR_MINIMUM_WAIT_TIME_BETWEEN_READS;
-    }
+
     return DEFAULT_SENSOR_MINIMUM_WAIT_TIME_BETWEEN_READS;
 }
 
 float PulseWindSensor::getWindSpeed()
 {
-    lastWindSpeed=lastWindSpeed + 1; // Simulate wind speed in m/s, cycling through 0 to 20 m/s
-    if (lastWindSpeed > 20.0f) {
-        lastWindSpeed = 0.0f; // Reset after reaching 20 m/s
-    }
+    //conversion is 1 pulse/s = 2.4 km/h
+    unsigned long deltaPulseCount = pulseCount - lastPulseCount;
+    unsigned long deltaTime = millis() - lastCheckTime;
+    lastPulseCount = pulseCount;
+    lastCheckTime = millis();
+
+    LOG_INFO("PulseWind sensor calculated based on %lu pulses within the last %lu ms", deltaPulseCount, deltaTime);
     
+
+    if ((deltaTime > 0) && (deltaPulseCount > 0))
+        lastWindSpeed = ((float)deltaPulseCount / ((float)deltaTime / 1000.0f)) * 2.4f;
+    else
+        lastWindSpeed = 0.0f; // No pulse detected, set speed to 0
+        
     return lastWindSpeed;
 }
 

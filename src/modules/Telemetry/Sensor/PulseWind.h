@@ -14,6 +14,9 @@ class PulseWindSensor : public TelemetrySensor {
     float lastWindSpeed = 0.0f;
     int lastWindDirection = 0;
 
+    unsigned long lastPulseCount = 0;
+    unsigned long lastCheckTime = 0;
+
     float getWindSpeed();
     int getWindDirection();
 
