@@ -9,9 +9,16 @@
 
 PulseWindSensor::PulseWindSensor() : TelemetrySensor(meshtastic_TelemetrySensorType_SENSOR_UNSET, "PULSEWIND") {}
 volatile unsigned long pulseCount = 0;
+volatile unsigned long last_interrupt_time = 0;
 
 void IRAM_ATTR windSpeedInt() {
-    pulseCount++;
+    unsigned long interrupt_time = millis();
+    // If interrupts come faster than 50ms, assume it's a bounce and ignore
+    if (interrupt_time - last_interrupt_time > 20) 
+    {
+        pulseCount++;
+    }
+    last_interrupt_time = interrupt_time;
 }
 
 void PulseWindSensor::setup()
@@ -45,10 +52,14 @@ float PulseWindSensor::getWindSpeed()
     
 
     if ((deltaTime > 0) && (deltaPulseCount > 0))
+    {
         lastWindSpeed = ((float)deltaPulseCount / ((float)deltaTime / 1000.0f)) * 2.4f;
+        lastWindSpeed = lastWindSpeed * 60 * 60 / 1000; // Convert to m/s
+    }
     else
+    {
         lastWindSpeed = 0.0f; // No pulse detected, set speed to 0
-        
+    }   
     return lastWindSpeed;
 }
 
