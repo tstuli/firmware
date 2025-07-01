@@ -26,6 +26,7 @@
 // Sensors
 #include "Sensor/CGRadSensSensor.h"
 #include "Sensor/RCWL9620Sensor.h"
+#include "Sensor/PulseWind.h"
 #include "Sensor/nullSensor.h"
 
 namespace graphics
@@ -187,6 +188,7 @@ NullSensor pct2075Sensor;
 
 RCWL9620Sensor rcwl9620Sensor;
 CGRadSensSensor cgRadSens;
+PulseWindSensor pulseWindSensor;
 
 #endif
 #ifdef T1000X_SENSOR_EN
@@ -298,6 +300,9 @@ int32_t EnvironmentTelemetryModule::runOnce()
                 result = cgRadSens.runOnce();
             if (pct2075Sensor.hasSensor())
                 result = pct2075Sensor.runOnce();
+            
+            result = pulseWindSensor.runOnce();
+                
                 // this only works on the wismesh hub with the solar option. This is not an I2C sensor, so we don't need the
                 // sensormap here.
 #ifdef HAS_RAKPROT
@@ -540,6 +545,9 @@ bool EnvironmentTelemetryModule::getEnvironmentTelemetry(meshtastic_Telemetry *m
     m->which_variant = meshtastic_Telemetry_environment_metrics_tag;
     m->variant.environment_metrics = meshtastic_EnvironmentMetrics_init_zero;
 
+    valid = valid && pulseWindSensor.getMetrics(m);
+    hasSensor = true;
+
 #ifdef SENSECAP_INDICATOR
     valid = valid && indicatorSensor.getMetrics(m);
     hasSensor = true;
@@ -674,6 +682,7 @@ bool EnvironmentTelemetryModule::getEnvironmentTelemetry(meshtastic_Telemetry *m
         valid = valid && pct2075Sensor.getMetrics(m);
         hasSensor = true;
     }
+
 #ifdef HAS_RAKPROT
     valid = valid && rak9154Sensor.getMetrics(m);
     hasSensor = true;
@@ -914,6 +923,7 @@ AdminMessageHandleResult EnvironmentTelemetryModule::handleAdminMessageForModule
         if (result != AdminMessageHandleResult::NOT_HANDLED)
             return result;
     }
+
 #if __has_include("RAK12035_SoilMoisture.h") && defined(RAK_4631) &&                                                             \
                   RAK_4631 ==                                                                                                    \
                       1 // Not really needed, but may as well just skip it at a lower level if no library or not a RAK_4631
