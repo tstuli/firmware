@@ -14,6 +14,7 @@ volatile unsigned long last_interrupt_time = 0;
 void IRAM_ATTR windSpeedInt() {
     unsigned long interrupt_time = millis();
     // If interrupts come faster than 50ms, assume it's a bounce and ignore
+    // 20ms is all we can really afford (2.4km/h * 50 = 120km/h)
     if (interrupt_time - last_interrupt_time > 20) 
     {
         pulseCount++;
@@ -54,13 +55,42 @@ float PulseWindSensor::getWindSpeed()
     if ((deltaTime > 0) && (deltaPulseCount > 0))
     {
         lastWindSpeed = ((float)deltaPulseCount / ((float)deltaTime / 1000.0f)) * 2.4f;
-        lastWindSpeed = lastWindSpeed * 60 * 60 / 1000; // Convert to m/s
+        lastWindSpeed = lastWindSpeed / 60 / 60 * 1000; // Convert to m/s
     }
     else
     {
         lastWindSpeed = 0.0f; // No pulse detected, set speed to 0
     }   
+
+    historicalWindSpeed[historicalIndex] = lastWindSpeed;
+    historicalIndex = (historicalIndex + 1) % NUM_HISTORICAL_WIND_SPEED;
     return lastWindSpeed;
+}
+
+float PulseWindSensor::getMinWindSpeed()
+{
+    float minSpeed = historicalWindSpeed[0];
+    for (int i = 1; i < NUM_HISTORICAL_WIND_SPEED; i++)
+    {
+        if (historicalWindSpeed[i] < minSpeed)
+        {
+            minSpeed = historicalWindSpeed[i];
+        }
+    }
+    return minSpeed;
+}
+
+float PulseWindSensor::getMaxWindSpeed()
+{
+    float maxSpeed = historicalWindSpeed[0];
+    for (int i = 1; i < NUM_HISTORICAL_WIND_SPEED; i++)
+    {
+        if (historicalWindSpeed[i] > maxSpeed)
+        {
+            maxSpeed = historicalWindSpeed[i];
+        }
+    }
+    return maxSpeed;
 }
 
 int PulseWindSensor::getWindDirection()
@@ -74,10 +104,15 @@ bool PulseWindSensor::getMetrics(meshtastic_Telemetry *measurement)
     measurement->variant.environment_metrics.has_temperature = false;
     measurement->variant.environment_metrics.has_relative_humidity = false;
     measurement->variant.environment_metrics.has_wind_speed = true;
+    measurement->variant.environment_metrics.has_wind_gust = true;
+    measurement->variant.environment_metrics.has_wind_lull = true;
     measurement->variant.environment_metrics.has_wind_direction = true;
     measurement->variant.environment_metrics.has_barometric_pressure = false;
 
     measurement->variant.environment_metrics.wind_speed = getWindSpeed();
+    measurement->variant.environment_metrics.wind_gust = getMaxWindSpeed();
+    measurement->variant.environment_metrics.wind_lull = getMinWindSpeed();
+    
     measurement->variant.environment_metrics.wind_direction = getWindDirection();
 
     LOG_INFO("Wind Speed: %f", measurement->variant.environment_metrics.wind_speed);

@@ -17,7 +17,14 @@ class PulseWindSensor : public TelemetrySensor {
     unsigned long lastPulseCount = 0;
     unsigned long lastCheckTime = 0;
 
+    #define NUM_HISTORICAL_WIND_SPEED 10
+    float historicalWindSpeed[NUM_HISTORICAL_WIND_SPEED] = {0.0f};
+    int historicalIndex = 0;
+
     float getWindSpeed();
+    float getMinWindSpeed();
+    float getMaxWindSpeed();
+
     int getWindDirection();
 
   protected:
