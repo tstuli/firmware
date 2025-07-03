@@ -17,15 +17,17 @@ class PulseWindSensor : public TelemetrySensor {
     unsigned long lastPulseCount = 0;
     unsigned long lastCheckTime = 0;
 
-    #define NUM_HISTORICAL_WIND_SPEED 10
-    float historicalWindSpeed[NUM_HISTORICAL_WIND_SPEED] = {0.0f};
-    int historicalIndex = 0;
-
     float getWindSpeed();
     float getMinWindSpeed();
     float getMaxWindSpeed();
 
     int getWindDirection();
+
+    float pulseLengthToSpeed(unsigned long pulseLength) {
+        // Convert pulse length to speed in m/s
+        // Assuming 1 pulse = 2.4 km/h, convert to m/s
+        return (pulseLength / 1000.0f) * (2.4f / 3.6f);
+    }
 
   protected:
     virtual void setup() override;

@@ -8,17 +8,31 @@
 #include <string>
 
 PulseWindSensor::PulseWindSensor() : TelemetrySensor(meshtastic_TelemetrySensorType_SENSOR_UNSET, "PULSEWIND") {}
+
+#define MAX_UINT32 4294967295
 volatile unsigned long pulseCount = 0;
 volatile unsigned long last_interrupt_time = 0;
+volatile unsigned long maxPulseLength = 0;
+volatile unsigned long minPulseLength = MAX_UINT32;
+
 
 void IRAM_ATTR windSpeedInt() {
     unsigned long interrupt_time = millis();
     // If interrupts come faster than 50ms, assume it's a bounce and ignore
-    // 20ms is all we can really afford (2.4km/h * 50 = 120km/h)
-    if (interrupt_time - last_interrupt_time > 20) 
+    // 20ms is all we can really afford (2.4km/h * 20 = 300km/h)
+    if ((interrupt_time - last_interrupt_time) > 20) 
     {
         pulseCount++;
     }
+
+    unsigned long pulseLength = interrupt_time - last_interrupt_time;
+    
+    if (pulseLength > maxPulseLength) // min lull
+        maxPulseLength = pulseLength;   
+
+    if (pulseLength < minPulseLength) // max gust
+        minPulseLength = pulseLength;
+        
     last_interrupt_time = interrupt_time;
 }
 
@@ -62,35 +76,27 @@ float PulseWindSensor::getWindSpeed()
         lastWindSpeed = 0.0f; // No pulse detected, set speed to 0
     }   
 
-    historicalWindSpeed[historicalIndex] = lastWindSpeed;
-    historicalIndex = (historicalIndex + 1) % NUM_HISTORICAL_WIND_SPEED;
     return lastWindSpeed;
 }
 
 float PulseWindSensor::getMinWindSpeed()
 {
-    float minSpeed = historicalWindSpeed[0];
-    for (int i = 1; i < NUM_HISTORICAL_WIND_SPEED; i++)
-    {
-        if (historicalWindSpeed[i] < minSpeed)
-        {
-            minSpeed = historicalWindSpeed[i];
-        }
+    if (minPulseLength == MAX_UINT32) {
+        return 0.0f; // No pulse detected yet
     }
-    return minSpeed;
+    float minLullSpeed = pulseLengthToSpeed(minPulseLength);
+    minPulseLength = MAX_UINT32; // Reset minPulseLength for next calculation
+    return minLullSpeed; // Convert pulse length to speed in m/s
 }
 
 float PulseWindSensor::getMaxWindSpeed()
 {
-    float maxSpeed = historicalWindSpeed[0];
-    for (int i = 1; i < NUM_HISTORICAL_WIND_SPEED; i++)
-    {
-        if (historicalWindSpeed[i] > maxSpeed)
-        {
-            maxSpeed = historicalWindSpeed[i];
-        }
+    if (maxPulseLength == 0) {
+        return 0.0f; // No pulse detected yet
     }
-    return maxSpeed;
+    float maxGustSpeed = pulseLengthToSpeed(maxPulseLength);
+    maxPulseLength = 0; // Reset maxPulseLength for next calculation
+    return maxGustSpeed; // Convert pulse length to speed in m/s
 }
 
 int PulseWindSensor::getWindDirection()
@@ -113,6 +119,8 @@ bool PulseWindSensor::getMetrics(meshtastic_Telemetry *measurement)
     measurement->variant.environment_metrics.wind_gust = getMaxWindSpeed();
     measurement->variant.environment_metrics.wind_lull = getMinWindSpeed();
     
+    unsigned long maxPulseLength = 0;
+    unsigned long minPulseLength = MAX_UINT32;
     measurement->variant.environment_metrics.wind_direction = getWindDirection();
 
     LOG_INFO("Wind Speed: %f", measurement->variant.environment_metrics.wind_speed);
