@@ -6,15 +6,20 @@
 #include "../mesh/generated/meshtastic/telemetry.pb.h"
 #include "TelemetrySensor.h"
 #include <string>
+#include <float.h>
 
 PulseWindSensor::PulseWindSensor() : TelemetrySensor(meshtastic_TelemetrySensorType_SENSOR_UNSET, "PULSEWIND") {}
 
-#define MAX_UINT32 4294967295
 volatile unsigned long pulseCount = 0;
 volatile unsigned long last_interrupt_time = 0;
-volatile unsigned long maxPulseLength = 0;
-volatile unsigned long minPulseLength = MAX_UINT32;
 
+#define MAX_SAMPLES 100
+#define SPEED_FACTOR 2.4f
+#define OUTLIER_THRESHOLD_PERCENT 50  // Accept values within ±50% of the mean
+
+unsigned long int pulseSamples[MAX_SAMPLES] = {0};
+unsigned int sampleIndex = 0;
+bool isFirstSample = true;
 
 void IRAM_ATTR windSpeedInt() {
     unsigned long interrupt_time = millis();
@@ -27,12 +32,9 @@ void IRAM_ATTR windSpeedInt() {
 
     unsigned long pulseLength = interrupt_time - last_interrupt_time;
     
-    if (pulseLength > maxPulseLength) // min lull
-        maxPulseLength = pulseLength;   
+    pulseSamples[sampleIndex] = pulseLength;
+    sampleIndex = (sampleIndex + 1) % MAX_SAMPLES;
 
-    if (pulseLength < minPulseLength) // max gust
-        minPulseLength = pulseLength;
-        
     last_interrupt_time = interrupt_time;
 }
 
@@ -55,49 +57,56 @@ int32_t PulseWindSensor::runOnce()
     return DEFAULT_SENSOR_MINIMUM_WAIT_TIME_BETWEEN_READS;
 }
 
-float PulseWindSensor::getWindSpeed()
-{
-    //conversion is 1 pulse/s = 2.4 km/h
-    unsigned long deltaPulseCount = pulseCount - lastPulseCount;
-    unsigned long deltaTime = millis() - lastCheckTime;
-    lastPulseCount = pulseCount;
-    lastCheckTime = millis();
+PulseWindSensor::WindSpeeds PulseWindSensor::calculate_wind_speeds_filtered(const unsigned long *intervals_ms, size_t count) {
+    WindSpeeds result = {0.0f, 0.0f, 0.0f};
+    if (!intervals_ms || count == 0 || count > MAX_SAMPLES) return result;
 
-    LOG_INFO("PulseWind sensor calculated based on %lu pulses within the last %lu ms", deltaPulseCount, deltaTime);
-    
+    int valid_intervals[MAX_SAMPLES];
+    size_t valid_count = 0;
+    unsigned long sum = 0;
 
-    if ((deltaTime > 0) && (deltaPulseCount > 0))
-    {
-        lastWindSpeed = ((float)deltaPulseCount / ((float)deltaTime / 1000.0f)) * 2.4f;
-        lastWindSpeed = lastWindSpeed / 60 / 60 * 1000; // Convert to m/s
+    // Step 1: Filter out invalid (<=0) and store
+    for (size_t i = 0; i < count; i++) {
+        if (intervals_ms[i] <= 0) continue;
+        valid_intervals[valid_count++] = intervals_ms[i];
+        sum += intervals_ms[i];
     }
-    else
-    {
-        lastWindSpeed = 0.0f; // No pulse detected, set speed to 0
-    }   
 
-    return lastWindSpeed;
+    if (valid_count == 0) return result;
+
+    // Step 2: Compute average interval
+    unsigned int mean = sum / valid_count;
+
+    // Step 3: Filter out outliers (±threshold%)
+    unsigned int lower_bound = mean - (mean * OUTLIER_THRESHOLD_PERCENT / 100);
+    unsigned int upper_bound = mean + (mean * OUTLIER_THRESHOLD_PERCENT / 100);
+
+    float speed_sum = 0.0f;
+    float gust = 0.0f;
+    float lull = FLT_MAX;
+    size_t filtered_count = 0;
+
+    for (size_t i = 0; i < valid_count; i++) {
+        int interval = valid_intervals[i];
+        if (interval < lower_bound || interval > upper_bound) continue;
+
+        float speed = (1000.0f / interval) * SPEED_FACTOR;
+
+        speed_sum += speed;
+        if (speed > gust) gust = speed;
+        if (speed < lull) lull = speed;
+        filtered_count++;
+    }
+
+    if (filtered_count == 0) return result;
+
+    result.average = speed_sum / filtered_count;
+    result.gust = gust;
+    result.lull = lull;
+    return result;
 }
 
-float PulseWindSensor::getMinWindSpeed()
-{
-    if (minPulseLength == MAX_UINT32) {
-        return 0.0f; // No pulse detected yet
-    }
-    float minLullSpeed = pulseLengthToSpeed(minPulseLength);
-    minPulseLength = MAX_UINT32; // Reset minPulseLength for next calculation
-    return minLullSpeed; // Convert pulse length to speed in m/s
-}
 
-float PulseWindSensor::getMaxWindSpeed()
-{
-    if (maxPulseLength == 0) {
-        return 0.0f; // No pulse detected yet
-    }
-    float maxGustSpeed = pulseLengthToSpeed(maxPulseLength);
-    maxPulseLength = 0; // Reset maxPulseLength for next calculation
-    return maxGustSpeed; // Convert pulse length to speed in m/s
-}
 
 int PulseWindSensor::getWindDirection()
 {
@@ -115,15 +124,20 @@ bool PulseWindSensor::getMetrics(meshtastic_Telemetry *measurement)
     measurement->variant.environment_metrics.has_wind_direction = true;
     measurement->variant.environment_metrics.has_barometric_pressure = false;
 
-    measurement->variant.environment_metrics.wind_speed = getWindSpeed();
-    measurement->variant.environment_metrics.wind_gust = getMaxWindSpeed();
-    measurement->variant.environment_metrics.wind_lull = getMinWindSpeed();
+
+    PulseWindSensor::WindSpeeds windSpeeds = calculate_wind_speeds_filtered(pulseSamples, MAX_SAMPLES);
+
+
+    measurement->variant.environment_metrics.wind_speed = windSpeeds.average;
+    measurement->variant.environment_metrics.wind_gust = windSpeeds.gust;
+    measurement->variant.environment_metrics.wind_lull = windSpeeds.lull;
     
-    unsigned long maxPulseLength = 0;
-    unsigned long minPulseLength = MAX_UINT32;
     measurement->variant.environment_metrics.wind_direction = getWindDirection();
 
     LOG_INFO("Wind Speed: %f", measurement->variant.environment_metrics.wind_speed);
+    LOG_INFO("Wind Gust: %f", measurement->variant.environment_metrics.wind_gust);
+    LOG_INFO("Wind Lull;: %f", measurement->variant.environment_metrics.wind_lull);
+    
     LOG_INFO("Wind Direction: %d", measurement->variant.environment_metrics.wind_direction);
 
     return true;

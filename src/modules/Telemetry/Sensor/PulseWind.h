@@ -17,9 +17,13 @@ class PulseWindSensor : public TelemetrySensor {
     unsigned long lastPulseCount = 0;
     unsigned long lastCheckTime = 0;
 
-    float getWindSpeed();
-    float getMinWindSpeed();
-    float getMaxWindSpeed();
+    typedef struct {
+        float average;
+        float gust;
+        float lull;
+    } WindSpeeds;
+    WindSpeeds calculate_wind_speeds_filtered(const unsigned long *intervals_ms, size_t count);
+
 
     int getWindDirection();
 
