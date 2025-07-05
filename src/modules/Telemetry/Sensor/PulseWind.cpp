@@ -13,12 +13,13 @@ PulseWindSensor::PulseWindSensor() : TelemetrySensor(meshtastic_TelemetrySensorT
 volatile unsigned long pulseCount = 0;
 volatile unsigned long last_interrupt_time = 0;
 
-#define MAX_SAMPLES 100
+#define MAX_SAMPLES 1000
 #define SPEED_FACTOR 2.4f
 #define OUTLIER_THRESHOLD_PERCENT 50  // Accept values within ±50% of the mean
 
 unsigned long int pulseSamples[MAX_SAMPLES] = {0};
 unsigned int sampleIndex = 0;
+unsigned int numSamples = 0;
 bool isFirstSample = true;
 
 void IRAM_ATTR windSpeedInt() {
@@ -34,7 +35,7 @@ void IRAM_ATTR windSpeedInt() {
     
     pulseSamples[sampleIndex] = pulseLength;
     sampleIndex = (sampleIndex + 1) % MAX_SAMPLES;
-
+    numSamples ++;
     last_interrupt_time = interrupt_time;
 }
 
@@ -59,11 +60,14 @@ int32_t PulseWindSensor::runOnce()
 
 PulseWindSensor::WindSpeeds PulseWindSensor::calculate_wind_speeds_filtered(const unsigned long *intervals_ms, size_t count) {
     WindSpeeds result = {0.0f, 0.0f, 0.0f};
-    if (!intervals_ms || count == 0 || count > MAX_SAMPLES) return result;
-
     int valid_intervals[MAX_SAMPLES];
     size_t valid_count = 0;
     unsigned long sum = 0;
+
+    //disable interrupts
+    detachInterrupt(digitalPinToInterrupt(48));
+    
+    if (!intervals_ms || count == 0 || count > MAX_SAMPLES) goto finished;
 
     // Step 1: Filter out invalid (<=0) and store
     for (size_t i = 0; i < count; i++) {
@@ -72,37 +76,50 @@ PulseWindSensor::WindSpeeds PulseWindSensor::calculate_wind_speeds_filtered(cons
         sum += intervals_ms[i];
     }
 
-    if (valid_count == 0) return result;
+    if (valid_count == 0) goto finished;
 
-    // Step 2: Compute average interval
-    unsigned int mean = sum / valid_count;
+    if (true)
+    {
+        // Step 2: Compute average interval
+        unsigned int mean = sum / valid_count;
 
-    // Step 3: Filter out outliers (±threshold%)
-    unsigned int lower_bound = mean - (mean * OUTLIER_THRESHOLD_PERCENT / 100);
-    unsigned int upper_bound = mean + (mean * OUTLIER_THRESHOLD_PERCENT / 100);
+        // Step 3: Filter out outliers (±threshold%)
+        unsigned int lower_bound = mean - (mean * OUTLIER_THRESHOLD_PERCENT / 100);
+        unsigned int upper_bound = mean + (mean * OUTLIER_THRESHOLD_PERCENT / 100);
 
-    float speed_sum = 0.0f;
-    float gust = 0.0f;
-    float lull = FLT_MAX;
-    size_t filtered_count = 0;
+        float speed_sum = 0.0f;
+        float gust = 0.0f;
+        float lull = FLT_MAX;
+        size_t filtered_count = 0;
 
-    for (size_t i = 0; i < valid_count; i++) {
-        int interval = valid_intervals[i];
-        if (interval < lower_bound || interval > upper_bound) continue;
+        for (size_t i = 0; i < valid_count; i++) {
+            int interval = valid_intervals[i];
+            if (interval < lower_bound || interval > upper_bound) continue;
 
-        float speed = (1000.0f / interval) * SPEED_FACTOR;
+            float speed = (1000.0f / interval) * SPEED_FACTOR;
 
-        speed_sum += speed;
-        if (speed > gust) gust = speed;
-        if (speed < lull) lull = speed;
-        filtered_count++;
+            speed_sum += speed;
+            if (speed > gust) gust = speed;
+            if (speed < lull) lull = speed;
+            filtered_count++;
+        }
+
+        if (filtered_count == 0) goto finished;
+
+        result.average = speed_sum / filtered_count;
+        result.gust = gust;
+        result.lull = lull;
     }
 
-    if (filtered_count == 0) return result;
-
-    result.average = speed_sum / filtered_count;
-    result.gust = gust;
-    result.lull = lull;
+finished:
+    // reset the sample index and count
+    sampleIndex = 0;
+    numSamples = 0;
+    for (size_t i = 0; i < MAX_SAMPLES; i++) {
+        pulseSamples[i] = 0;
+    }
+    //reenable interrupts
+    attachInterrupt(digitalPinToInterrupt(48), windSpeedInt, FALLING);
     return result;
 }
 
