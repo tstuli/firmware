@@ -330,8 +330,8 @@ NodeDB::NodeDB()
         LOG_DEBUG("Coerce telemetry to min of 30 minutes on defaults");
         moduleConfig.telemetry.device_update_interval = Default::getConfiguredOrMinimumValue(
             moduleConfig.telemetry.device_update_interval, min_default_telemetry_interval_secs);
-        moduleConfig.telemetry.environment_update_interval = 450; //Default::getConfiguredOrMinimumValue(
-            //moduleConfig.telemetry.environment_update_interval, min_default_telemetry_interval_secs);
+        moduleConfig.telemetry.environment_update_interval = Default::getConfiguredOrMinimumValue(
+            moduleConfig.telemetry.environment_update_interval, min_default_weather_interval_secs);
         moduleConfig.telemetry.air_quality_interval = Default::getConfiguredOrMinimumValue(
             moduleConfig.telemetry.air_quality_interval, min_default_telemetry_interval_secs);
         moduleConfig.telemetry.power_update_interval = Default::getConfiguredOrMinimumValue(
