@@ -25,7 +25,7 @@ class PulseWindSensor : public TelemetrySensor {
     WindSpeeds calculate_wind_speeds_filtered(const unsigned long *intervals_ms, size_t count);
 
 
-    int getWindDirection();
+    uint8_t getWindDirection();
 
     float pulseLengthToSpeed(unsigned long pulseLength) {
         // Convert pulse length to speed in m/s

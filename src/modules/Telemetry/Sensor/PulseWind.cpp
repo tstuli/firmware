@@ -124,22 +124,44 @@ finished:
 }
 
 
+enum WindDirection {
+    dir_0_degrees = 0,  // North
+    dir_22_5_degrees = 1,  // North-Northeast
+    dir_45_degrees = 2,  // Northeast
+    dir_67_5_degrees = 3,  // East-Northeast
+    dir_90_degrees = 4,  // East
+    dir_112_5_degrees = 5,  // East-Southeast
+    dir_135_degrees = 6,  // Southeast
+    dir_157_5_degrees = 7,  // South-Southeast
+    dir_180_degrees = 8,  // South
+    dir_202_5_degrees = 9,  // South-Southwest
+    dir_225_degrees = 10, // Southwest
+    dir_247_5_degrees = 11, // West-Southwest
+    dir_270_degrees = 12, // West
+    dir_292_5_degrees = 13, // West-Northwest
+    dir_315_degrees = 14, // Northwest
+    dir_337_5_degrees = 15  // North-Northwest
+};
 
-int PulseWindSensor::getWindDirection()
+uint8_t PulseWindSensor::getWindDirection()
 {
-    return lastWindDirection++ % 360; // Simulate wind direction in degrees
+    // Wind direction is represented in several discrete values
+    return (uint8_t)dir_180_degrees; // Default to South
 }
 
 bool PulseWindSensor::getMetrics(meshtastic_Telemetry *measurement)
 {
     LOG_INFO("Read pulse wind sensor metrics");
+    
+    measurement->variant.environment_metrics.has_wind_speed = true; // only including the encoded value
+    measurement->variant.environment_metrics.has_wind_gust = false;
+    measurement->variant.environment_metrics.has_wind_lull = false;
+    measurement->variant.environment_metrics.has_barometric_pressure = false;
+    measurement->variant.environment_metrics.has_wind_direction = false;
+
     measurement->variant.environment_metrics.has_temperature = false;
     measurement->variant.environment_metrics.has_relative_humidity = false;
-    measurement->variant.environment_metrics.has_wind_speed = true;
-    measurement->variant.environment_metrics.has_wind_gust = true;
-    measurement->variant.environment_metrics.has_wind_lull = true;
-    measurement->variant.environment_metrics.has_wind_direction = true;
-    measurement->variant.environment_metrics.has_barometric_pressure = false;
+
 
 
     PulseWindSensor::WindSpeeds windSpeeds = calculate_wind_speeds_filtered(pulseSamples, MAX_SAMPLES);
@@ -149,14 +171,46 @@ bool PulseWindSensor::getMetrics(meshtastic_Telemetry *measurement)
     measurement->variant.environment_metrics.wind_gust = windSpeeds.gust;
     measurement->variant.environment_metrics.wind_lull = windSpeeds.lull;
     
+
+    //To reduce data volume, we are going to coerce some of the values into a single one.  This requires logic on the receiver to understand, but its better than modifying the protobuf.
+    // To do this, wind_speed is represented as a x10 value in uint16_t and only use the first 12 bits
+    // Then, wind_gust and wind_lull are respresnted as offset from wind_speed in x1 value as uint8_t
+    // Finally, wind direction is repesented as the top most 4 bits of the uint32_t value
+    uint32_t windSpeedValueEncoded = ((uint16_t)(windSpeeds.average * 10.0f) & 0x0FFF) << 16;
+    windSpeedValueEncoded |= ((uint8_t)((windSpeeds.gust - windSpeeds.average) * 10.0f) & 0xFF) << 8;
+    windSpeedValueEncoded |= ((uint8_t)((windSpeeds.average - windSpeeds.lull) * 10.0f) & 0xFF);
+    windSpeedValueEncoded |= ((getWindDirection() & 0x0F) << 28);
+
     measurement->variant.environment_metrics.wind_direction = getWindDirection();
 
-    LOG_INFO("Wind Speed: %f", measurement->variant.environment_metrics.wind_speed);
-    LOG_INFO("Wind Gust: %f", measurement->variant.environment_metrics.wind_gust);
-    LOG_INFO("Wind Lull;: %f", measurement->variant.environment_metrics.wind_lull);
-    
-    LOG_INFO("Wind Direction: %d", measurement->variant.environment_metrics.wind_direction);
+    LOG_INFO("Wind Speed Float: %f", measurement->variant.environment_metrics.wind_speed);
+    LOG_INFO("Wind Gust Float: %f", measurement->variant.environment_metrics.wind_gust);
+    LOG_INFO("Wind Lull Float: %f", measurement->variant.environment_metrics.wind_lull);
+    LOG_INFO("Wind Direction Float: %d", measurement->variant.environment_metrics.wind_direction);
 
+    // type punning
+    typedef union {
+        uint32_t i;
+        float f;
+    }  FloatIntUnion;
+
+    FloatIntUnion u;
+    u.i = windSpeedValueEncoded;
+    measurement->variant.environment_metrics.wind_speed = u.f;
+    LOG_INFO("Wind Speed Encoded: 0x%x", u.i);
+
+    // decoded wind values
+    float decodedWindSpeed = ((float)((windSpeedValueEncoded >> 16) & 0x0FFF)) / 10.0f;
+    float decodedWindGust  = decodedWindSpeed + (((windSpeedValueEncoded >> 8) & 0xFF) / 10.0f);
+    float decodedWindLull  = decodedWindSpeed - ((windSpeedValueEncoded & 0xFF) / 10.0f);
+
+    float decodedWindDirection = ((float)((windSpeedValueEncoded >> 28) & 0x0F)) * 22.5f;
+
+    LOG_INFO("Wind Speed Decode: %f", decodedWindSpeed);
+    LOG_INFO("Wind Gust Decoded: %f", decodedWindGust);
+    LOG_INFO("Wind Lull Decoded: %f", decodedWindLull);
+    LOG_INFO("Wind Direction Decoded: %f", decodedWindDirection);
+    
     return true;
 }
 
