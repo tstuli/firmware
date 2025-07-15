@@ -94,7 +94,7 @@ meshtastic_Telemetry DeviceTelemetryModule::getDeviceTelemetry()
     t.time = getTime();
     t.variant.device_metrics = meshtastic_DeviceMetrics_init_zero;
     t.variant.device_metrics.has_air_util_tx = true;
-    t.variant.device_metrics.has_battery_level = true;
+    t.variant.device_metrics.has_battery_level = false;
     t.variant.device_metrics.has_channel_utilization = true;
     t.variant.device_metrics.has_voltage = true;
     t.variant.device_metrics.has_uptime_seconds = true;
