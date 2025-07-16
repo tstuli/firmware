@@ -31,7 +31,7 @@ void BME280Sensor::setup() {}
 
 bool BME280Sensor::getMetrics(meshtastic_Telemetry *measurement)
 {
-    measurement->variant.environment_metrics.has_temperature = true;
+    measurement->variant.environment_metrics.has_temperature = false;
 
     // For now, disable these readings to reduce data size
     measurement->variant.environment_metrics.has_relative_humidity = false; //true;

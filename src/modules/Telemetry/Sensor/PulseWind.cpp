@@ -24,13 +24,8 @@ bool isFirstSample = true;
 
 void IRAM_ATTR windSpeedInt() {
     unsigned long interrupt_time = millis();
-    // If interrupts come faster than 50ms, assume it's a bounce and ignore
-    // 20ms is all we can really afford (2.4km/h * 20 = 300km/h)
-    if ((interrupt_time - last_interrupt_time) > 20) 
-    {
-        pulseCount++;
-    }
-
+    pulseCount++;
+  
     unsigned long pulseLength = interrupt_time - last_interrupt_time;
     
     pulseSamples[sampleIndex] = pulseLength;
@@ -53,6 +48,11 @@ int32_t PulseWindSensor::runOnce()
     pinMode(48, INPUT_PULLUP); // Set GPIO 48 as input with pull-up resistor
     attachInterrupt(digitalPinToInterrupt(48), windSpeedInt, FALLING);
 
+    pinMode(7, OUTPUT); // This is our voltage divider power
+    digitalWrite(7, LOW); // Set GPIO 7 low to power off the sensor
+
+    pinMode(6, ANALOG);
+    
     status = true;
 
     return DEFAULT_SENSOR_MINIMUM_WAIT_TIME_BETWEEN_READS;
@@ -146,6 +146,11 @@ enum WindDirection {
 uint8_t PulseWindSensor::getWindDirection()
 {
     // Wind direction is represented in several discrete values
+    digitalWrite(7, HIGH); // Set GPIO 7 high to power on the sensor
+    delay(10);
+    uint32_t reading = analogReadMilliVolts(GPIO_NUM_6); // Read the analog value from GPIO 6
+    LOG_INFO("Raw direction sensor: %d", reading);
+
     return (uint8_t)dir_180_degrees; // Default to South
 }
 
@@ -179,9 +184,10 @@ bool PulseWindSensor::getMetrics(meshtastic_Telemetry *measurement)
     uint32_t windSpeedValueEncoded = ((uint16_t)(windSpeeds.average * 10.0f) & 0x0FFF) << 16;
     windSpeedValueEncoded |= ((uint8_t)((windSpeeds.gust - windSpeeds.average) * 10.0f) & 0xFF) << 8;
     windSpeedValueEncoded |= ((uint8_t)((windSpeeds.average - windSpeeds.lull) * 10.0f) & 0xFF);
-    windSpeedValueEncoded |= ((getWindDirection() & 0x0F) << 28);
 
     measurement->variant.environment_metrics.wind_direction = getWindDirection();
+
+    windSpeedValueEncoded |= ((measurement->variant.environment_metrics.wind_direction & 0x0F) << 28);
 
     LOG_INFO("Wind Speed Float: %f", measurement->variant.environment_metrics.wind_speed);
     LOG_INFO("Wind Gust Float: %f", measurement->variant.environment_metrics.wind_gust);
