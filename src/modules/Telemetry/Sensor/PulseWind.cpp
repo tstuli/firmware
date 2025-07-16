@@ -143,6 +143,27 @@ enum WindDirection {
     dir_337_5_degrees = 15  // North-Northwest
 };
 
+uint16_t ClosestDirection[] =
+{
+    2533,
+    1308,
+    1487,
+    270,
+    300,
+    212,
+    595,
+    408,
+    926,
+    789,
+    2031,
+    1932,
+    3046,
+    2667,
+    2859,
+    2265
+};
+
+
 uint8_t PulseWindSensor::getWindDirection()
 {
     // Wind direction is represented in several discrete values
@@ -151,7 +172,19 @@ uint8_t PulseWindSensor::getWindDirection()
     uint32_t reading = analogReadMilliVolts(GPIO_NUM_6); // Read the analog value from GPIO 6
     LOG_INFO("Raw direction sensor: %d", reading);
 
-    return (uint8_t)dir_180_degrees; // Default to South
+    WindDirection direction = dir_0_degrees; // Default to North
+
+    //find the closest direction
+    uint8_t numDirections = sizeof(ClosestDirection) / sizeof(ClosestDirection[0]);
+    uint16_t closestDiff = UINT16_MAX;
+    for (uint8_t i = 0; i < numDirections; i++) {
+        uint16_t diff = static_cast<uint16_t>(reading > ClosestDirection[i] ? reading - ClosestDirection[i] : ClosestDirection[i] - reading);
+        if (diff < closestDiff) {
+            closestDiff = diff;
+            direction = static_cast<WindDirection>(i);
+        }
+    }
+    return direction; // Convert to degrees (each step is 22.5 degrees)
 }
 
 bool PulseWindSensor::getMetrics(meshtastic_Telemetry *measurement)
