@@ -737,8 +737,26 @@ bool EnvironmentTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
 #else
     if (getEnvironmentTelemetry(&m)) {
 #endif
-        LOG_INFO("Send: wind speed packed=%fm/s, direction=%d degrees", m.variant.environment_metrics.wind_speed,
-            m.variant.environment_metrics.wind_direction);          
+        // Alternate between bme and wind data
+        static uint8_t switcher = 0;
+
+        switcher++;
+
+        if (switcher % 2 == 0) {
+            //send temperature data
+            LOG_INFO("Send: barometric_pressure=%f, current=%f, gas_resistance=%f, relative_humidity=%f, temperature=%f",
+                    m.variant.environment_metrics.barometric_pressure, m.variant.environment_metrics.current,
+                    m.variant.environment_metrics.gas_resistance, m.variant.environment_metrics.relative_humidity,
+                    m.variant.environment_metrics.temperature);
+            m.variant.environment_metrics.has_temperature = true;
+            m.variant.environment_metrics.has_wind_speed = false;            
+        } else {
+            //send wind data
+            LOG_INFO("Send: wind speed=%fm/s, direction=%d degrees", m.variant.environment_metrics.wind_speed,
+                 m.variant.environment_metrics.wind_direction);
+            m.variant.environment_metrics.has_temperature = false;
+            m.variant.environment_metrics.has_wind_speed = true;            
+        }
 
         sensor_read_error_count = 0;
 
